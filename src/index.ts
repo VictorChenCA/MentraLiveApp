@@ -13,213 +13,306 @@ interface StoredPhoto {
   size: number;
 }
 
-const PACKAGE_NAME = process.env.PACKAGE_NAME ?? (() => { throw new Error('PACKAGE_NAME is not set in .env file'); })();
-const MENTRAOS_API_KEY = process.env.MENTRAOS_API_KEY ?? (() => { throw new Error('MENTRAOS_API_KEY is not set in .env file'); })();
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? (() => { throw new Error('PACKAGE_NAME is not set in .env file'); })();
-const ROBOFLOW_API_KEY = process.env.ROBOFLOW_API_KEY ?? (() => { throw new Error('MENTRAOS_API_KEY is not set in .env file'); })();
-const PORT = parseInt(process.env.PORT || '3000');
+type Stage =
+  | 'hole'
+  | 'flop'
+  | 'turn'
+  | 'river'
+  | 'await_hole_photo'
+  | 'await_flop_photo'
+  | 'await_turn_photo'
+  | 'await_river_photo';
 
+interface PlayerState {
+  stage: Stage;
+  hole: string[];
+  board: string[];
+}
+
+/* ─────────────────────────────── Env Checks ─────────────────────────────── */
+const PACKAGE_NAME =
+  process.env.PACKAGE_NAME ?? (() => {
+    throw new Error('PACKAGE_NAME is not set in .env file');
+  })();
+const MENTRAOS_API_KEY =
+  process.env.MENTRAOS_API_KEY ?? (() => {
+    throw new Error('MENTRAOS_API_KEY is not set in .env file');
+  })();
+const OPENAI_API_KEY =
+  process.env.OPENAI_API_KEY ?? (() => {
+    throw new Error('OPENAI_API_KEY is not set in .env file');
+  })();
+const ROBOFLOW_API_KEY =
+  process.env.ROBOFLOW_API_KEY ?? (() => {
+    throw new Error('ROBOFLOW_API_KEY is not set in .env file');
+  })();
+const PORT = parseInt(process.env.PORT || '3000', 10);
+
+/* ────────────────────────────── Main App Class ───────────────────────────── */
 class PokerCoachMentraApp extends AppServer {
-  private static readonly DEMO_USER_ID = "demo";
+  private static readonly DEMO_USER_ID = 'demo';
 
   private photos: Map<string, StoredPhoto> = new Map();
   private latestPhotoTimestamp: Map<string, number> = new Map();
-  private sessionStates: Map<string, "idle" | "awaiting_photo"> = new Map();
+  private players: Map<string, PlayerState> = new Map();
 
   constructor() {
-    super({
-      packageName: PACKAGE_NAME,
-      apiKey: MENTRAOS_API_KEY,
-      port: PORT,
-    });
+    super({ packageName: PACKAGE_NAME, apiKey: MENTRAOS_API_KEY, port: PORT });
     this.setupWebviewRoutes();
   }
 
-  protected async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
+  /* ────────────────────────── Session Lifecycle ─────────────────────────── */
+  protected async onSession(
+    session: AppSession,
+    sessionId: string,
+    userId: string,
+  ): Promise<void> {
+    // Force demo user for now
     userId = PokerCoachMentraApp.DEMO_USER_ID;
     this.logger.info(`Session started for user ${userId}`);
-    this.sessionStates.set(userId, "idle");
+    this.players.set(userId, { stage: 'hole', hole: [], board: [] });
 
-    session.events.onButtonPress(async (button) => {
-      if (button.pressType !== 'short') return;
+    session.events.onButtonPress(async ({ pressType }) => {
+      if (pressType !== 'short') return;
 
-      const state = this.sessionStates.get(userId);
+      const st = this.players.get(userId)!;
+      this.logger.info(`Button pressed. Current stage: ${st.stage}`);
 
-      if (state === "idle") {
-        await session.audio.stopAudio();
-        await session.audio.speak("Ready. Show me your hand and press the button again to take a photo.");
-        this.sessionStates.set(userId, "awaiting_photo");
-        return;
-      }
+      // Always stop any ongoing audio first
+      await session.audio.stopAudio();
 
-      if (state === "awaiting_photo") {
-        try {
-          const photo = await session.camera.requestPhoto();
-          this.logger.info(`Photo taken for user ${userId}, timestamp: ${photo.timestamp}`);
+      try {
+        switch (st.stage) {
+          case 'hole':
+            await session.audio.speak(
+              'Ready. Show me your hand and press the button again to take a photo.',
+            );
+            st.stage = 'await_hole_photo';
+            break;
 
-          this.cachePhoto(photo, userId);
-          const photoUrl = `${this.getServerUrl()}/api/photo/${photo.requestId}`;
+          case 'await_hole_photo':
+            await this.handlePhotoStage(session, userId, 'hole');
+            break;
 
-          const result = await this.fetchHandAnalysis(photoUrl);
+          case 'flop':
+            await session.audio.speak('Show me the flop. Press again to take a photo.');
+            st.stage = 'await_flop_photo';
+            break;
 
-          const message = `Your win probability is ${result.win_probability} percent.`;
-          await session.audio.stopAudio();
-          await session.audio.speak(message);
-          await session.audio.speak(result.tip);
+          case 'await_flop_photo':
+            await this.handlePhotoStage(session, userId, 'flop');
+            break;
 
-        } catch (error) {
-          this.logger.error(`Error during hand analysis: ${error}`);
-          await session.audio.stopAudio();
-          await session.audio.speak("Sorry, there was an error analyzing your hand.");
+          case 'turn':
+            await session.audio.speak('Show me the turn card. Press again.');
+            st.stage = 'await_turn_photo';
+            break;
+
+          case 'await_turn_photo':
+            await this.handlePhotoStage(session, userId, 'turn');
+            break;
+
+          case 'river':
+            await session.audio.speak('Show me the river card. Press again.');
+            st.stage = 'await_river_photo';
+            break;
+
+          case 'await_river_photo':
+            await this.handlePhotoStage(session, userId, 'river');
+            break;
+
+          default:
+            this.logger.warn(`Unknown stage "${st.stage}" – resetting state.`);
+            this.players.set(userId, { stage: 'hole', hole: [], board: [] });
         }
-
-        this.sessionStates.set(userId, "idle");
+      } catch (err) {
+        this.logger.error(`Error during stage ${st.stage}: ${err}`);
+        await session.audio.speak('Sorry, there was an error analyzing your hand.');
+        this.players.set(userId, { stage: 'hole', hole: [], board: [] });
       }
     });
   }
 
   protected async onStop(sessionId: string, userId: string, reason: string): Promise<void> {
     userId = PokerCoachMentraApp.DEMO_USER_ID;
-    this.logger.info(`Session stopped for user ${userId}, reason: ${reason}`);
-    this.sessionStates.delete(userId);
+    this.logger.info(`Session stopped for user ${userId}. Reason: ${reason}`);
+    this.players.delete(userId);
   }
 
-  private async fetchHandAnalysis(photoUrl: string): Promise<{ win_probability: number; tip: string }> {
-    /* ───── Step 1 – Roboflow HTTP API ───── */
-    const apiBase = "https://pokerclass.roboflow.cloud";
-    const modelPath = "playing-cards-ow27d/4";
-    const roboflowURL = `${apiBase}/${modelPath}?` + new URLSearchParams({
-      api_key: ROBOFLOW_API_KEY,
-      image: photoUrl
-    }).toString();
+  /* ──────────────────────────── Stage Helpers ───────────────────────────── */
+  private async handlePhotoStage(session: AppSession, uid: string, stage: 'hole' | 'flop' | 'turn' | 'river') {
+    const st = this.players.get(uid)!;
 
-    this.logger.info(`Roboflow URL: ${roboflowURL}`);
+    // 1. Take photo
+    const photo = await session.camera.requestPhoto();
+    this.logger.info(`Photo captured for stage ${stage}. ts=${photo.timestamp}`);
+    this.cachePhoto(photo, uid);
+
+    // 2. Detect cards
+    const detected = await this.detectCards(photo);
+    this.logger.info(`Detected ${stage} cards: ${JSON.stringify(detected)}`);
+
+    let expectedCount: number;
+    if (stage === 'hole') {
+      expectedCount = 2;
+    } else if (stage === 'flop') {
+      expectedCount = 3;
+    } else if (stage === 'turn') {
+      expectedCount = 4; // 3 flop cards + 1 turn card
+    } else {      // 'river'
+      expectedCount = 5; // 3 flop cards + 1 turn card + 1 river card
+    }
+    if (detected.length !== expectedCount) {
+      throw new Error(`Expected ${expectedCount} card(s) at ${stage}, got ${detected.length}`);
+    }
+
+    // 3. Update state
+    if (stage === 'hole') st.hole = detected;
+    else st.board.push(...detected);
+
+    // 4. Get analysis
+    const analysis = await this.fetchHandAnalysis(st.hole, st.board);
+    await session.audio.speak(`Your win probability is ${analysis.win_probability} percent.`);
+    await session.audio.speak(analysis.tip);
+
+    // 5. Advance stage
+    const nextStageMap: Record<typeof stage, Stage> = {
+      hole: 'flop',
+      flop: 'turn',
+      turn: 'river',
+      river: 'hole',
+    };
+    st.stage = nextStageMap[stage];
+
+    // If we completed river, reset state entirely
+    if (stage === 'river') {
+      this.logger.info(`Hand complete for user ${uid}. Resetting player state.`);
+      this.players.set(uid, { stage: 'hole', hole: [], board: [] });
+    }
+  }
+
+  /* ────────────────────────── External API Calls ─────────────────────────── */
+  private async detectCards(photo: PhotoData): Promise<string[]> {
+    const photoUrl = `${this.getServerUrl()}/api/photo/${photo.requestId}`;
+    const roboflowURL =
+      `https://pokerclass.roboflow.cloud/playing-cards-ow27d/4?` +
+      new URLSearchParams({ api_key: ROBOFLOW_API_KEY, image: photoUrl }).toString();
+
+    this.logger.info(`Roboflow URL → ${roboflowURL}`);
 
     const rfRes = await fetch(roboflowURL);
     if (!rfRes.ok) {
-      const errText = await rfRes.text().catch(() => "");
-      throw new Error(`Roboflow API error: ${rfRes.status} ${rfRes.statusText} - ${errText}`);
+      const errText = await rfRes.text().catch(() => '');
+      throw new Error(`Roboflow API error: ${rfRes.status} ${rfRes.statusText} – ${errText}`);
     }
 
     const rfJson = await rfRes.json();
-    this.logger.info(`Roboflow raw response: ${JSON.stringify(rfJson)}`);
+    this.logger.debug(`Roboflow response: ${JSON.stringify(rfJson)}`);
 
-    // Extract and deduplicate class labels
-    const rawPredictions = Array.isArray(rfJson.predictions) ? rfJson.predictions : [];
-    const classes = [...new Set(rawPredictions.map(p => p.class).filter(c => typeof c === "string"))];
+    const raw = Array.isArray(rfJson.predictions) ? rfJson.predictions : [];
+    return [...new Set(raw.map((p: any) => p.class).filter((c: any): c is string => typeof c === 'string'))] as string[];
+  }
 
-    if (classes.length !== 2) {
-      throw new Error(
-        `Expected 2 distinct card classes.\nCards: ${JSON.stringify(classes)}\nFull response: ${JSON.stringify(rfJson)}`
-      );
-    }
+  private async fetchHandAnalysis(hole: string[], board: string[]): Promise<{ win_probability: number; tip: string }> {
+    const stages = ['pre-flop', 'flop', 'turn', 'river'] as const;
+    const stage = stages[board.length];
 
-    /* ───── Step 2 – OpenAI GPT API ───── */
     const openaiPayload = {
-      model: "gpt-3.5-turbo",
+      model: 'gpt-3.5-turbo',
       temperature: 0.7,
       messages: [
         {
-          role: "system",
-          content: "You are an intelligent poker assistant for newbie players. You have an image of my hand, pre-flop."
+          role: 'system',
+          content: 'You are an intelligent poker assistant for newbie players. You have an image of my hand, pre-flop.',
         },
         {
-          role: "user",
-          content: `My hand is ${classes.join(" and ")}. Return to me a JSON file in the format: {win_probability: 0-100,tip: 
-                    "a 1-sentence advice to be read out loud to the player. Don't use any emojis or special characters."}`
-        }
-      ]
+          role: 'user',
+          content:
+            `My hand is ${hole.join(' and ')}${board.length ? '. Community cards: ' + board.join(', ') : ''
+            }. ` +
+            'Return to me a JSON file in the format: {win_probability: 0-100, tip:"a 1-sentence advice to be read out loud to the player. Don\'t use any emojis or special characters."}',
+        },
+      ],
     };
 
-    this.logger.info(`[OpenAI] Request payload: ${JSON.stringify(openaiPayload, null, 2)}`);
+    this.logger.info(`[OpenAI] Payload: ${JSON.stringify(openaiPayload, null, 2)}`);
 
-    const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENAI_API_KEY}`
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
-      body: JSON.stringify(openaiPayload)
+      body: JSON.stringify(openaiPayload),
     });
 
     if (!openaiRes.ok) {
-      const errText = await openaiRes.text().catch(() => "");
+      const errText = await openaiRes.text().catch(() => '');
       this.logger.error(`[OpenAI] Error ${openaiRes.status} ${openaiRes.statusText}`);
-      this.logger.error(`[OpenAI] Response body: ${errText}`);
-      throw new Error(`OpenAI API error: ${openaiRes.status} ${openaiRes.statusText} - ${errText}`);
+      this.logger.error(`[OpenAI] Body: ${errText}`);
+      throw new Error(`OpenAI API error: ${openaiRes.status} ${openaiRes.statusText} – ${errText}`);
     }
 
-    const openaiJson = await openaiRes.json();
-    const responseText = openaiJson.choices?.[0]?.message?.content?.trim();
+    const json = await openaiRes.json();
+    const content = json.choices?.[0]?.message?.content?.trim();
 
     let parsed: any;
     try {
-      parsed = JSON.parse(responseText);
+      parsed = JSON.parse(content);
     } catch (err) {
-      this.logger.error(`[OpenAI] Invalid JSON response: ${responseText}`);
-      throw new Error(`Failed to parse OpenAI response as JSON: ${responseText}`);
+      this.logger.error(`[OpenAI] Invalid JSON: ${content}`);
+      throw new Error(`Failed to parse OpenAI response as JSON: ${content}`);
     }
 
     return {
       win_probability: Math.max(0, Math.min(100, parsed.win_probability)),
-      tip: parsed.tip
+      tip: parsed.tip,
     };
   }
 
-  private async cachePhoto(photo: PhotoData, userId: string) {
+  /* ────────────────────────── Photo Caching & Web ────────────────────────── */
+  private cachePhoto(photo: PhotoData, userId: string) {
     userId = PokerCoachMentraApp.DEMO_USER_ID;
 
-    const cachedPhoto: StoredPhoto = {
+    const cached: StoredPhoto = {
       requestId: photo.requestId,
       buffer: photo.buffer,
       timestamp: photo.timestamp,
-      userId: userId,
+      userId,
       mimeType: photo.mimeType,
       filename: photo.filename,
-      size: photo.size
+      size: photo.size,
     };
 
-    this.photos.set(userId, cachedPhoto);
-    this.latestPhotoTimestamp.set(userId, cachedPhoto.timestamp.getTime());
-    this.logger.info(`Photo cached for user ${userId}, timestamp: ${cachedPhoto.timestamp}`);
+    this.photos.set(userId, cached);
+    this.latestPhotoTimestamp.set(userId, cached.timestamp.getTime());
+    this.logger.debug(`Photo cached. user=${userId} ts=${cached.timestamp}`);
   }
 
   private setupWebviewRoutes(): void {
     const app = this.getExpressApp();
     const DEMO_USER_ID = PokerCoachMentraApp.DEMO_USER_ID;
 
+    // Latest photo meta
     app.get('/api/latest-photo', (req: any, res: any) => {
-      const userId = DEMO_USER_ID;
-      const photo = this.photos.get(userId);
-      if (!photo) {
-        res.status(404).json({ error: 'No photo available' });
-        return;
-      }
-      res.json({
-        requestId: photo.requestId,
-        timestamp: photo.timestamp.getTime(),
-        hasPhoto: true
-      });
+      const photo = this.photos.get(DEMO_USER_ID);
+      if (!photo) return res.status(404).json({ error: 'No photo available' });
+      res.json({ requestId: photo.requestId, timestamp: photo.timestamp.getTime(), hasPhoto: true });
     });
 
+    // Raw photo bytes
     app.get('/api/photo/:requestId', (req: any, res: any) => {
-      const userId = DEMO_USER_ID;
-      const requestId = req.params.requestId;
-      const photo = this.photos.get(userId);
-      if (!photo || photo.requestId !== requestId) {
-        res.status(404).json({ error: 'Photo not found' });
-        return;
-      }
-      res.set({
-        'Content-Type': photo.mimeType,
-        'Cache-Control': 'no-cache'
-      });
+      const photo = this.photos.get(DEMO_USER_ID);
+      if (!photo || photo.requestId !== req.params.requestId)
+        return res.status(404).json({ error: 'Photo not found' });
+      res.set({ 'Content-Type': photo.mimeType, 'Cache-Control': 'no-cache' });
       res.send(photo.buffer);
     });
 
+    // Simple webview to preview photos
     app.get('/webview', async (req: any, res: any) => {
-      const templatePath = path.join(process.cwd(), 'views', 'photo-viewer.ejs');
-      const html = await ejs.renderFile(templatePath, {});
+      const template = path.join(process.cwd(), 'views', 'photo-viewer.ejs');
+      const html = await ejs.renderFile(template, {});
       res.send(html);
     });
   }
@@ -230,5 +323,6 @@ class PokerCoachMentraApp extends AppServer {
   }
 }
 
+/* ──────────────────────────────── Boot ──────────────────────────────────── */
 const app = new PokerCoachMentraApp();
-app.start().catch(console.error);
+app.start().catch((err) => console.error(err));
