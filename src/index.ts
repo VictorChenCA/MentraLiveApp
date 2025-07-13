@@ -200,12 +200,44 @@ class PokerCoachMentraApp extends AppServer {
     session: AppSession,
     stage: "hole" | "flop" | "turn" | "river"
   ) {
-    // 1. Take photo
+
+    // TODO: TRY KARAN'S CODE:
+    const ops = {
+      voice_id: "WdZjiN0nNcik2LBjOHiv",
+      model_id: "eleven_flash_v2_5",
+      voice_settings: {
+        stability: 0.4,
+        similarity_boost: 0.85,
+        style: 0.6,
+        speed: 0.95,
+      },
+    };
+
+    // 1. Output 'stay still' message:
+    await session.audio.speak("Stay still.", ops);
+    
+    // 2. Take (i.e. capture) photo:
     const photo = await session.camera.requestPhoto();
     this.logger.info(
       `Photo captured for stage ${stage}. ts=${photo.timestamp}`
     );
     this.cachePhoto(photo, PokerCoachMentraApp.DEMO_USER_ID);
+
+    await session.audio.playAudio({
+      audioUrl:
+        "https://raw.githubusercontent.com/VictorChenCA/MentraLiveApp/main/assets/chime-sound.mp3",
+      volume: 0.8,
+    });
+
+    // DEBUG TEST FOR playAudio() call:
+    this.logger.info(`Playing confirmation sound for photo at stage ${stage}.`);
+    // // 1. Take photo
+    // const photo = await session.camera.requestPhoto();
+    // this.logger.info(
+    //   `Photo captured for stage ${stage}. ts=${photo.timestamp}`
+    // );
+
+    // this.cachePhoto(photo, PokerCoachMentraApp.DEMO_USER_ID);
 
     // 2. Detect cards
     const detected = await this.detectCards(photo);
@@ -222,16 +254,16 @@ class PokerCoachMentraApp extends AppServer {
       expectedCount = 5;
     }
 
-    const ops = {
-      voice_id: "WdZjiN0nNcik2LBjOHiv",
-      model_id: "eleven_flash_v2_5",
-      voice_settings: {
-        stability: 0.4,
-        similarity_boost: 0.85,
-        style: 0.6,
-        speed: 0.95,
-      },
-    };
+    // const ops = {
+    //   voice_id: "WdZjiN0nNcik2LBjOHiv",
+    //   model_id: "eleven_flash_v2_5",
+    //   voice_settings: {
+    //     stability: 0.4,
+    //     similarity_boost: 0.85,
+    //     style: 0.6,
+    //     speed: 0.95,
+    //   },
+    // };
 
     if (detected.length !== expectedCount) {
       this.logger.warn(
