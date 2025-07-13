@@ -222,7 +222,16 @@ class PokerCoachMentraApp extends AppServer {
     this.logger.debug(`Roboflow response: ${JSON.stringify(rfJson)}`);
 
     const raw = Array.isArray(rfJson.predictions) ? rfJson.predictions : [];
-    return [...new Set(raw.map((p: any) => p.class).filter((c: any): c is string => typeof c === 'string'))] as string[];
+    // Remove duplicates while preserving order
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const p of raw) {
+      if (typeof p.class === 'string' && !seen.has(p.class)) {
+        seen.add(p.class);
+        unique.push(p.class);
+      }
+    }
+    return unique;
   }
 
   private conversationHistory: Message[] = [
@@ -233,11 +242,11 @@ class PokerCoachMentraApp extends AppServer {
         'The user will give you a Texas Hold\'em hand and optionally the flop, turn, or river, depending on the phase of the game. ' +
         'You will analyze the hand and return a JSON object with the win probability and a one-sentence tip. ' +
         'The win probability should be a number between 0 and 100, inclusive. ' +
-        'The tip should be a short, one-sentence piece of advice that can be read aloud to the player. ' +
-        'The tip should be simple and easy to understand for a beginner poker player. ' +
+        'The tip should be easy to understand for a beginner poker player. ' +
         'Format the tip for a beginner, and seek to teach in addition to provide advice ' +
         'Do not simply repeat the Win Probability.' +
         'There are always 4 players at the table. ' +
+        'Return only a raw JSON object. Do not include any markdown, code block, or explanation.' +
         'Do not use emojis or special characters.',
     },
   ];
