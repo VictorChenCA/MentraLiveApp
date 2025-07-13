@@ -60,6 +60,16 @@ class PokerCoachMentraApp extends AppServer {
     userId = PokerCoachMentraApp.DEMO_USER_ID;
     this.logger.info(`Session started for user ${userId}`);
     this.sessionStates.set(userId, "idle");
+    const ops = {
+      voice_id: "WdZjiN0nNcik2LBjOHiv",
+      model_id: "eleven_flash_v2_5",
+      voice_settings: {
+        stability: 0.4,
+        similarity_boost: 0.85,
+        style: 0.6,
+        speed: 0.95,
+      },
+    };
 
     session.events.onButtonPress(async (button) => {
       if (button.pressType !== "short") return;
@@ -70,16 +80,7 @@ class PokerCoachMentraApp extends AppServer {
         await session.audio.stopAudio();
         await session.audio.speak(
           "Ready. Show me your hand and press the button again to take a photo.",
-          {
-            voice_id: "WdZjiN0nNcik2LBjOHiv",
-            model_id: "eleven_flash_v2_5",
-            voice_settings: {
-              stability: 0.4,
-              similarity_boost: 0.85,
-              style: 0.6,
-              speed: 0.95,
-            },
-          }
+          ops
         );
         this.sessionStates.set(userId, "awaiting_photo");
         return;
@@ -101,41 +102,14 @@ class PokerCoachMentraApp extends AppServer {
 
           const message = `Your win probability is ${result.win_probability} percent.`;
           await session.audio.stopAudio();
-          await session.audio.speak(message, {
-            voice_id: "WdZjiN0nNcik2LBjOHiv",
-            model_id: "eleven_flash_v2_5",
-            voice_settings: {
-              stability: 0.4,
-              similarity_boost: 0.85,
-              style: 0.6,
-              speed: 0.95,
-            },
-          });
-          await session.audio.speak(result.tip, {
-            voice_id: "WdZjiN0nNcik2LBjOHiv",
-            model_id: "eleven_flash_v2_5",
-            voice_settings: {
-              stability: 0.4,
-              similarity_boost: 0.85,
-              style: 0.6,
-              speed: 0.95,
-            },
-          });
+          await session.audio.speak(message, ops);
+          await session.audio.speak(result.tip, ops);
         } catch (error) {
           this.logger.error(`Error during hand analysis: ${error}`);
           await session.audio.stopAudio();
           await session.audio.speak(
             "Sorry, there was an error analyzing your hand.",
-            {
-              voice_id: "WdZjiN0nNcik2LBjOHiv",
-              model_id: "eleven_flash_v2_5",
-              voice_settings: {
-                stability: 0.4,
-                similarity_boost: 0.85,
-                style: 0.6,
-                speed: 0.95,
-              },
-            }
+            ops
           );
         }
 
