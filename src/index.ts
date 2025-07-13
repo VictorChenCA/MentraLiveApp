@@ -61,9 +61,19 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 class PokerCoachMentraApp extends AppServer {
   private static readonly DEMO_USER_ID = "demo";
 
+  // Use a single global state object for the demo user
+  private globalState: {
+    stage: Stage;
+    hole: string[];
+    board: string[];
+  } = {
+    stage: "hole",
+    hole: [],
+    board: [],
+  };
+
   private photos: Map<string, StoredPhoto> = new Map();
   private latestPhotoTimestamp: Map<string, number> = new Map();
-  private players: Map<string, PlayerState> = new Map();
 
   constructor() {
     super({ packageName: PACKAGE_NAME, apiKey: MENTRAOS_API_KEY, port: PORT });
@@ -79,7 +89,8 @@ class PokerCoachMentraApp extends AppServer {
     // Force demo user for now
     userId = PokerCoachMentraApp.DEMO_USER_ID;
     this.logger.info(`Session started for user ${userId}`);
-    this.players.set(userId, { stage: "hole", hole: [], board: [] });
+    this.resetGlobalState();
+
     const ops = {
       voice_id: "WdZjiN0nNcik2LBjOHiv",
       model_id: "eleven_flash_v2_5",
@@ -94,27 +105,26 @@ class PokerCoachMentraApp extends AppServer {
     session.events.onButtonPress(async ({ pressType }) => {
       if (pressType == "long") {
         this.logger.warn(`Long press detected - resetting state.`);
-        this.players.set(userId, { stage: "hole", hole: [], board: [] });
+        this.resetGlobalState();
       }
 
-      const st = this.players.get(userId)!;
-      this.logger.info(`Button pressed. Current stage: ${st.stage}`);
+      this.logger.info(`Button pressed. Current stage: ${this.globalState.stage}`);
 
       // Always stop any ongoing audio first
       await session.audio.stopAudio();
 
       try {
-        switch (st.stage) {
+        switch (this.globalState.stage) {
           case "hole":
             await session.audio.speak(
               "Ready. Show me your hand and press the button again to take a photo.",
               ops
             );
-            st.stage = "await_hole_photo";
+            this.globalState.stage = "await_hole_photo";
             break;
 
           case "await_hole_photo":
-            await this.handlePhotoStage(session, userId, "hole");
+            await this.handlePhotoStage(session, "hole");
             break;
 
           case "flop":
@@ -122,11 +132,11 @@ class PokerCoachMentraApp extends AppServer {
               "Show me the flop. Press again to take a photo.",
               ops
             );
-            st.stage = "await_flop_photo";
+            this.globalState.stage = "await_flop_photo";
             break;
 
           case "await_flop_photo":
-            await this.handlePhotoStage(session, userId, "flop");
+            await this.handlePhotoStage(session, "flop");
             break;
 
           case "turn":
@@ -134,11 +144,11 @@ class PokerCoachMentraApp extends AppServer {
               "Show me the turn. Press again to take a photo.",
               ops
             );
-            st.stage = "await_turn_photo";
+            this.globalState.stage = "await_turn_photo";
             break;
 
           case "await_turn_photo":
-            await this.handlePhotoStage(session, userId, "turn");
+            await this.handlePhotoStage(session, "turn");
             break;
 
           case "river":
@@ -146,27 +156,27 @@ class PokerCoachMentraApp extends AppServer {
               "Show me the river. Press again to take a photo.",
               ops
             );
-            st.stage = "await_river_photo";
+            this.globalState.stage = "await_river_photo";
             break;
 
           case "await_river_photo":
-            await this.handlePhotoStage(session, userId, "river");
+            await this.handlePhotoStage(session, "river");
             break;
 
           default:
             this.logger.warn(
-              `Unknown stage "${st.stage}" – resetting state.`,
+              `Unknown stage "${this.globalState.stage}" – resetting state.`,
               ops
             );
-            this.players.set(userId, { stage: "hole", hole: [], board: [] });
+            this.resetGlobalState();
         }
       } catch (err) {
-        this.logger.error(`Error during stage ${st.stage}: ${err}`);
+        this.logger.error(`Error during stage ${this.globalState.stage}: ${err}`);
         await session.audio.speak(
           "Sorry, there was an error analyzing your hand.",
           ops
         );
-        this.players.set(userId, { stage: "hole", hole: [], board: [] });
+        this.resetGlobalState();
       }
     });
   }
@@ -178,23 +188,24 @@ class PokerCoachMentraApp extends AppServer {
   ): Promise<void> {
     userId = PokerCoachMentraApp.DEMO_USER_ID;
     this.logger.info(`Session stopped for user ${userId}. Reason: ${reason}`);
-    this.players.delete(userId);
+    this.resetGlobalState();
+  }
+
+  private resetGlobalState() {
+    this.globalState = { stage: "hole", hole: [], board: [] };
   }
 
   /* ──────────────────────────── Stage Helpers ───────────────────────────── */
   private async handlePhotoStage(
     session: AppSession,
-    uid: string,
-    stage: "hole" | "flop" | "turn" | "river" | "await_hole_photo" | "await_flop_photo" | "await_turn_photo" | "await_river_photo"
+    stage: "hole" | "flop" | "turn" | "river"
   ) {
-    const st = this.players.get(uid)!;
-
     // 1. Take photo
     const photo = await session.camera.requestPhoto();
     this.logger.info(
       `Photo captured for stage ${stage}. ts=${photo.timestamp}`
     );
-    this.cachePhoto(photo, uid);
+    this.cachePhoto(photo, PokerCoachMentraApp.DEMO_USER_ID);
 
     // 2. Detect cards
     const detected = await this.detectCards(photo);
@@ -206,10 +217,9 @@ class PokerCoachMentraApp extends AppServer {
     } else if (stage === "flop") {
       expectedCount = 3;
     } else if (stage === "turn") {
-      expectedCount = 4; // 3 flop cards + 1 turn card
+      expectedCount = 4;
     } else {
-      // 'river'
-      expectedCount = 5; // 3 flop cards + 1 turn card + 1 river card
+      expectedCount = 5;
     }
 
     const ops = {
@@ -234,9 +244,9 @@ class PokerCoachMentraApp extends AppServer {
 
       // Reset board for this stage so it doesn't accumulate on retries
       if (stage === "hole") {
-        st.hole = [];
+        this.globalState.hole = [];
       } else {
-        st.board = [];
+        this.globalState.board = [];
       }
 
       // Do not advance stage or reset state; just return to let user try
@@ -244,11 +254,11 @@ class PokerCoachMentraApp extends AppServer {
     }
 
     // 3. Update state
-    if (stage === "hole") st.hole = detected;
-    else st.board.push(...detected);
+    if (stage === "hole") this.globalState.hole = detected;
+    else this.globalState.board = detected;
 
     // 4. Get analysis
-    const analysis = await this.fetchHandAnalysis(st.hole, st.board);
+    const analysis = await this.fetchHandAnalysis(this.globalState.hole, this.globalState.board);
     await session.audio.speak(
       `Your win probability is ${analysis.win_probability} percent.`,
       ops
@@ -266,15 +276,15 @@ class PokerCoachMentraApp extends AppServer {
       "river": "await_river_photo",
       "await_river_photo": "hole"
     };
-    this.logger.info("" + `Advancing stage from ${st.stage} to ${nextStageMap[st.stage]}`);
-    st.stage = nextStageMap[st.stage];
+    this.logger.info("" + `Advancing stage from ${this.globalState.stage} to ${nextStageMap[this.globalState.stage]}`);
+    this.globalState.stage = nextStageMap[this.globalState.stage];
 
-    // If we completed river, reset state entirely
+    // If we completed river, reset state entirely and clear conversation history
     if (stage === "river") {
       this.logger.info(
-        `Hand complete for user ${uid}. Resetting player state.`
+        `Hand complete. Resetting global state.`
       );
-      this.players.set(uid, { stage: "hole", hole: [], board: [] });
+      this.resetGlobalState();
 
       // Clear the conversation history to prepare for a new round
       this.conversationHistory = [
