@@ -168,8 +168,14 @@ class PokerCoachMentraApp extends AppServer {
     } else {      // 'river'
       expectedCount = 5; // 3 flop cards + 1 turn card + 1 river card
     }
+
     if (detected.length !== expectedCount) {
-      throw new Error(`Expected ${expectedCount} card(s) at ${stage}, got ${detected.length}`);
+      this.logger.warn(`Expected ${expectedCount} card(s) at ${stage}, got ${detected.length}`);
+      await session.audio.speak(
+        `I couldn't detect the expected number of cards. Please try taking the photo again, making sure all cards are clearly visible.`
+      );
+      // Do not advance stage or reset state; just return to let user try again
+      return;
     }
 
     // 3. Update state
@@ -257,7 +263,7 @@ class PokerCoachMentraApp extends AppServer {
     this.conversationHistory.push(userMessage);
 
     const openaiPayload = {
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o',
       temperature: 0.7,
       messages: this.conversationHistory,
     };
