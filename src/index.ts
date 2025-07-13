@@ -29,6 +29,12 @@ interface PlayerState {
   board: string[];
 }
 
+type Message = {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+};
+
+
 /* ─────────────────────────────── Env Checks ─────────────────────────────── */
 const PACKAGE_NAME =
   process.env.PACKAGE_NAME ?? (() => {
@@ -213,26 +219,47 @@ class PokerCoachMentraApp extends AppServer {
     return [...new Set(raw.map((p: any) => p.class).filter((c: any): c is string => typeof c === 'string'))] as string[];
   }
 
-  private async fetchHandAnalysis(hole: string[], board: string[]): Promise<{ win_probability: number; tip: string }> {
+  private conversationHistory: Message[] = [
+    {
+      role: 'system',
+      content:
+        'You are a intelligent poker assistant for new players. ' +
+        'The user will give you a Texas Hold\'em hand and optionally the flop, turn, or river, depending on the phase of the game. ' +
+        'You will analyze the hand and return a JSON object with the win probability and a one-sentence tip. ' +
+        'The win probability should be a number between 0 and 100, inclusive. ' +
+        'The tip should be a short, one-sentence piece of advice that can be read aloud to the player. ' +
+        'The tip should be simple and easy to understand for a beginner poker player. ' +
+        'Format the tip for a beginner, and seek to teach in addition to provide advice ' +
+        'Do not simply repeat the Win Probability.' +
+        'There are always 4 players at the table. ' +
+        'Do not use emojis or special characters.',
+    },
+  ];
+
+  private async fetchHandAnalysis(
+    hole: string[],
+    board: string[]
+  ): Promise<{ win_probability: number; tip: string }> {
     const stages = ['pre-flop', 'flop', 'turn', 'river'] as const;
     const stage = stages[board.length];
+
+    const userMessage: Message = {
+      role: 'user',
+      content:
+        `Stage: ${stage}. ` +
+        `My hand is ${hole.join(' and ')}.` +
+        (board.length ? ` Community cards: ${board.join(', ')}.` : '') +
+        ' Return a JSON object in the format: ' +
+        '{win_probability: number (0–100), tip: "A one-sentence tip to be read aloud to the player."}',
+    };
+
+    // Add user query to history
+    this.conversationHistory.push(userMessage);
 
     const openaiPayload = {
       model: 'gpt-3.5-turbo',
       temperature: 0.7,
-      messages: [
-        {
-          role: 'system',
-          content: 'You are an intelligent poker assistant for newbie players. You have an image of my hand, pre-flop.',
-        },
-        {
-          role: 'user',
-          content:
-            `My hand is ${hole.join(' and ')}${board.length ? '. Community cards: ' + board.join(', ') : ''
-            }. ` +
-            'Return to me a JSON file in the format: {win_probability: 0-100, tip:"a 1-sentence advice to be read out loud to the player. Don\'t use any emojis or special characters."}',
-        },
-      ],
+      messages: this.conversationHistory,
     };
 
     this.logger.info(`[OpenAI] Payload: ${JSON.stringify(openaiPayload, null, 2)}`);
@@ -264,11 +291,18 @@ class PokerCoachMentraApp extends AppServer {
       throw new Error(`Failed to parse OpenAI response as JSON: ${content}`);
     }
 
+    // Save assistant response to history
+    this.conversationHistory.push({
+      role: 'assistant',
+      content: content ?? '',
+    });
+
     return {
       win_probability: Math.max(0, Math.min(100, parsed.win_probability)),
       tip: parsed.tip,
     };
   }
+
 
   /* ────────────────────────── Photo Caching & Web ────────────────────────── */
   private cachePhoto(photo: PhotoData, userId: string) {
