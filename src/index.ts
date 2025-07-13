@@ -85,74 +85,84 @@ class PokerCoachMentraApp extends AppServer {
   }
 
   private async fetchHandAnalysis(photoUrl: string): Promise<{ win_probability: number; tip: string }> {
-    // Step 1: Get card values from Roboflow
-    const roboflowResponse = await fetch('https://pokerclass.roboflow.cloud/', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        api_key: ROBOFLOW_API_KEY,
-        inputs: {
-          image: {
-            type: 'url',
-            value: photoUrl
-          }
+    /* ───── Step 1 – Roboflow HTTP API ───── */
+    const apiBase = "https://pokerclass.roboflow.cloud";
+    const modelPath = "playing-cards-ow27d/4";
+    const roboflowURL = `${apiBase}/${modelPath}?` + new URLSearchParams({
+      api_key: ROBOFLOW_API_KEY,
+      image: photoUrl
+    }).toString();
+
+    this.logger.info(`Roboflow URL: ${roboflowURL}`);
+
+    const rfRes = await fetch(roboflowURL);
+    if (!rfRes.ok) {
+      const errText = await rfRes.text().catch(() => "");
+      throw new Error(`Roboflow API error: ${rfRes.status} ${rfRes.statusText} - ${errText}`);
+    }
+
+    const rfJson = await rfRes.json();
+    this.logger.info(`Roboflow raw response: ${JSON.stringify(rfJson)}`);
+
+    // Extract and deduplicate class labels
+    const rawPredictions = Array.isArray(rfJson.predictions) ? rfJson.predictions : [];
+    const classes = [...new Set(rawPredictions.map(p => p.class).filter(c => typeof c === "string"))];
+
+    if (classes.length !== 2) {
+      throw new Error(
+        `Expected 2 distinct card classes.\nCards: ${JSON.stringify(classes)}\nFull response: ${JSON.stringify(rfJson)}`
+      );
+    }
+
+    /* ───── Step 2 – OpenAI GPT API ───── */
+    /* ───── Step 2 – OpenAI GPT API ───── */
+    const openaiPayload = {
+      model: "gpt-3.5-turbo",
+      temperature: 0.7,
+      messages: [
+        {
+          role: "system",
+          content: "You are an intelligent poker assistant for newbie players. You have an image of my hand, pre-flop."
+        },
+        {
+          role: "user",
+          content: `My hand is ${classes.join(" and ")}. Return to me a JSON file in the format: {win_probability: 0-100, tip: "a 1-sentence advice to be read out loud to the player"}`
         }
-      })
-    });
+      ]
+    };
 
-    if (!roboflowResponse.ok) {
-      throw new Error(`Roboflow API error: ${roboflowResponse.statusText}`);
-    }
+    this.logger.info(`[OpenAI] Request payload: ${JSON.stringify(openaiPayload, null, 2)}`);
 
-    const roboflowResult = await roboflowResponse.json();
-    const cards = roboflowResult.cards ?? roboflowResult.predictions?.[0]?.cards;
-
-    if (!cards || !Array.isArray(cards) || cards.length !== 2) {
-      throw new Error(`Invalid card data from Roboflow: ${JSON.stringify(cards)}`);
-    }
-
-    // Step 2: Ask OpenAI for tip and win probability
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
+    const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
-        temperature: 0.7,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an intelligent poker assistant for newbie players. You have an image of my hand, pre-flop.'
-          },
-          {
-            role: 'user',
-            content: `My hand is ${cards.join(' and ')}. Return to me a JSON file in the format: {win_probability: 0-100, tip: "a 1-sentence advice to be read out loud to the player"}`
-          }
-        ]
-      })
+      body: JSON.stringify(openaiPayload)
     });
 
-    if (!openaiResponse.ok) {
-      throw new Error(`OpenAI API error: ${openaiResponse.statusText}`);
+    if (!openaiRes.ok) {
+      const errText = await openaiRes.text().catch(() => "");
+      this.logger.error(`[OpenAI] Error ${openaiRes.status} ${openaiRes.statusText}`);
+      this.logger.error(`[OpenAI] Response body: ${errText}`);
+      throw new Error(`OpenAI API error: ${openaiRes.status} ${openaiRes.statusText} - ${errText}`);
     }
 
-    const openaiJson = await openaiResponse.json();
-    const responseText = openaiJson.choices?.[0]?.message?.content;
+    const openaiJson = await openaiRes.json();
+    const responseText = openaiJson.choices?.[0]?.message?.content?.trim();
 
-    let parsed;
+    let parsed: any;
     try {
       parsed = JSON.parse(responseText);
     } catch (err) {
+      this.logger.error(`[OpenAI] Invalid JSON response: ${responseText}`);
       throw new Error(`Failed to parse OpenAI response as JSON: ${responseText}`);
     }
 
     return {
-      win_probability: parsed.win_probability ?? 0,
-      tip: parsed.tip ?? "No tip available."
+      win_probability: Math.max(0, Math.min(100, parsed.win_probability)),
+      tip: parsed.tip
     };
   }
 
