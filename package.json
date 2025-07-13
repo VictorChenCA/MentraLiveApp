@@ -5,13 +5,16 @@
   "scripts": {
     "start": "bun src/index.ts",
     "dev": "bun --hot src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test-tts": "bun test-tts.mts"
   },
   "author": "",
   "license": "ISC",
   "description": "Example app for taking photos with MentraOS",
   "dependencies": {
+    "@elevenlabs/elevenlabs-js": "^2.6.0",
     "@mentra/sdk": "^2.1.2",
+    "dotenv": "^17.2.0",
     "ejs": "^3.1.10",
     "express": "^4.21.2",
     "ws": "^8.18.1"
