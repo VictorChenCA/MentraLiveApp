@@ -249,10 +249,10 @@ class PokerCoachMentraApp extends AppServer {
 
     // 5. Advance stage
     const nextStageMap: Record<typeof stage, Stage> = {
-      hole: "flop",
-      flop: "turn",
-      turn: "river",
-      river: "hole",
+      "await_hole_photo": "flop",
+      "await_hole_photo": "turn",
+      "await_turn_photo": "river",
+      "await_river_photo": "hole"
     };
     st.stage = nextStageMap[stage];
 
