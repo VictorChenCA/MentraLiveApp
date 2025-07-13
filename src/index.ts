@@ -79,7 +79,11 @@ class PokerCoachMentraApp extends AppServer {
     this.players.set(userId, { stage: 'hole', hole: [], board: [] });
 
     session.events.onButtonPress(async ({ pressType }) => {
-      if (pressType !== 'short') return;
+      if (pressType == 'long')
+      {
+        this.logger.warn(`Long press detected - resetting state.`);
+        this.players.set(userId, { stage: 'hole', hole: [], board: [] });
+      }
 
       const st = this.players.get(userId)!;
       this.logger.info(`Button pressed. Current stage: ${st.stage}`);
@@ -110,7 +114,7 @@ class PokerCoachMentraApp extends AppServer {
             break;
 
           case 'turn':
-            await session.audio.speak('Show me the turn card. Press again.');
+            await session.audio.speak('Show me the turn. Press again to take a photo.');
             st.stage = 'await_turn_photo';
             break;
 
@@ -119,7 +123,7 @@ class PokerCoachMentraApp extends AppServer {
             break;
 
           case 'river':
-            await session.audio.speak('Show me the river card. Press again.');
+            await session.audio.speak('Show me the river. Press again to take a photo.');
             st.stage = 'await_river_photo';
             break;
 
