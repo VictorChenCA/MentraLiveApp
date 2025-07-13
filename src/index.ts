@@ -71,8 +71,8 @@ class PokerCoachMentraApp extends AppServer {
         await session.audio.speak(
           "Ready. Show me your hand and press the button again to take a photo.",
           {
-            voice_id: "JBFqnCBsd6RMkjVDRZzb",
-            model_id: "eleven_v3",
+            voice_id: "WdZjiN0nNcik2LBjOHiv",
+            model_id: "eleven_flash_v2_5",
             voice_settings: {
               stability: 0.4,
               similarity_boost: 0.85,
@@ -102,8 +102,8 @@ class PokerCoachMentraApp extends AppServer {
           const message = `Your win probability is ${result.win_probability} percent.`;
           await session.audio.stopAudio();
           await session.audio.speak(message, {
-            voice_id: "JBFqnCBsd6RMkjVDRZzb",
-            model_id: "eleven_v3",
+            voice_id: "WdZjiN0nNcik2LBjOHiv",
+            model_id: "eleven_flash_v2_5",
             voice_settings: {
               stability: 0.4,
               similarity_boost: 0.85,
@@ -112,8 +112,8 @@ class PokerCoachMentraApp extends AppServer {
             },
           });
           await session.audio.speak(result.tip, {
-            voice_id: "JBFqnCBsd6RMkjVDRZzb",
-            model_id: "eleven_v3",
+            voice_id: "WdZjiN0nNcik2LBjOHiv",
+            model_id: "eleven_flash_v2_5",
             voice_settings: {
               stability: 0.4,
               similarity_boost: 0.85,
@@ -127,8 +127,8 @@ class PokerCoachMentraApp extends AppServer {
           await session.audio.speak(
             "Sorry, there was an error analyzing your hand.",
             {
-              voice_id: "JBFqnCBsd6RMkjVDRZzb",
-              model_id: "eleven_v3",
+              voice_id: "WdZjiN0nNcik2LBjOHiv",
+              model_id: "eleven_flash_v2_5",
               voice_settings: {
                 stability: 0.4,
                 similarity_boost: 0.85,
