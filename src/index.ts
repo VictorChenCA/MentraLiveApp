@@ -15,6 +15,8 @@ interface StoredPhoto {
 
 const PACKAGE_NAME = process.env.PACKAGE_NAME ?? (() => { throw new Error('PACKAGE_NAME is not set in .env file'); })();
 const MENTRAOS_API_KEY = process.env.MENTRAOS_API_KEY ?? (() => { throw new Error('MENTRAOS_API_KEY is not set in .env file'); })();
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? (() => { throw new Error('PACKAGE_NAME is not set in .env file'); })();
+const ROBOFLOW_API_KEY = process.env.ROBOFLOW_API_KEY ?? (() => { throw new Error('MENTRAOS_API_KEY is not set in .env file'); })();
 const PORT = parseInt(process.env.PORT || '3000');
 
 class PokerCoachMentraApp extends AppServer {
@@ -60,9 +62,10 @@ class PokerCoachMentraApp extends AppServer {
 
           const result = await this.fetchHandAnalysis(photoUrl);
 
-          const message = `Your win probability is ${result.win_probability} percent. ${result.tip}`;
+          const message = `Your win probability is ${result.win_probability} percent.`;
           await session.audio.stopAudio();
           await session.audio.speak(message);
+          await session.audio.speak(result.tip);
 
         } catch (error) {
           this.logger.error(`Error during hand analysis: ${error}`);
@@ -82,13 +85,14 @@ class PokerCoachMentraApp extends AppServer {
   }
 
   private async fetchHandAnalysis(photoUrl: string): Promise<{ win_probability: number; tip: string }> {
-    const response = await fetch('https://serverless.roboflow.com/infer/workflows/mentra-live-hackathon/detect-and-classify', {
+    // Step 1: Get card values from Roboflow
+    const roboflowResponse = await fetch('https://pokerclass.roboflow.cloud/', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        api_key: 'b9R5Pk1ktGB31ClFhAfS',
+        api_key: ROBOFLOW_API_KEY,
         inputs: {
           image: {
             type: 'url',
@@ -98,15 +102,57 @@ class PokerCoachMentraApp extends AppServer {
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`Roboflow API error: ${response.statusText}`);
+    if (!roboflowResponse.ok) {
+      throw new Error(`Roboflow API error: ${roboflowResponse.statusText}`);
     }
 
-    const result = await response.json();
+    const roboflowResult = await roboflowResponse.json();
+    const cards = roboflowResult.cards ?? roboflowResult.predictions?.[0]?.cards;
+
+    if (!cards || !Array.isArray(cards) || cards.length !== 2) {
+      throw new Error(`Invalid card data from Roboflow: ${JSON.stringify(cards)}`);
+    }
+
+    // Step 2: Ask OpenAI for tip and win probability
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-3.5-turbo',
+        temperature: 0.7,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an intelligent poker assistant for newbie players. You have an image of my hand, pre-flop.'
+          },
+          {
+            role: 'user',
+            content: `My hand is ${cards.join(' and ')}. Return to me a JSON file in the format: {win_probability: 0-100, tip: "a 1-sentence advice to be read out loud to the player"}`
+          }
+        ]
+      })
+    });
+
+    if (!openaiResponse.ok) {
+      throw new Error(`OpenAI API error: ${openaiResponse.statusText}`);
+    }
+
+    const openaiJson = await openaiResponse.json();
+    const responseText = openaiJson.choices?.[0]?.message?.content;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch (err) {
+      throw new Error(`Failed to parse OpenAI response as JSON: ${responseText}`);
+    }
 
     return {
-      win_probability: result.predictions?.[0]?.win_probability ?? 0,
-      tip: result.predictions?.[0]?.tip ?? "No tip available."
+      win_probability: parsed.win_probability ?? 0,
+      tip: parsed.tip ?? "No tip available."
     };
   }
 
