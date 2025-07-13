@@ -185,7 +185,7 @@ class PokerCoachMentraApp extends AppServer {
   private async handlePhotoStage(
     session: AppSession,
     uid: string,
-    stage: "hole" | "flop" | "turn" | "river"
+    stage: "hole" | "flop" | "turn" | "river" | "await_hole_photo" | "await_flop_photo" | "await_turn_photo" | "await_river_photo"
   ) {
     const st = this.players.get(uid)!;
 
@@ -231,7 +231,15 @@ class PokerCoachMentraApp extends AppServer {
         `I couldn't detect the expected number of cards. Please try taking the photo again, making sure all cards are clearly visible.`,
         ops
       );
-      // Do not advance stage or reset state; just return to let user try again
+
+      // Reset board for this stage so it doesn't accumulate on retries
+      if (stage === "hole") {
+        st.hole = [];
+      } else {
+        st.board = [];
+      }
+
+      // Do not advance stage or reset state; just return to let user try
       return;
     }
 
@@ -248,13 +256,18 @@ class PokerCoachMentraApp extends AppServer {
     await session.audio.speak(analysis.tip, ops);
 
     // 5. Advance stage
-    const nextStageMap: Record<typeof stage, Stage> = {
+    const nextStageMap: Record<Stage, Stage> = {
+      "hole": "await_hole_photo",
       "await_hole_photo": "flop",
-      "await_hole_photo": "turn",
+      "flop": "await_flop_photo",
+      "await_flop_photo": "turn",
+      "turn": "await_turn_photo",
       "await_turn_photo": "river",
+      "river": "await_river_photo",
       "await_river_photo": "hole"
     };
-    st.stage = nextStageMap[stage];
+    this.logger.info("" + `Advancing stage from ${st.stage} to ${nextStageMap[st.stage]}`);
+    st.stage = nextStageMap[st.stage];
 
     // If we completed river, reset state entirely
     if (stage === "river") {
@@ -339,8 +352,7 @@ class PokerCoachMentraApp extends AppServer {
     this.conversationHistory.push(userMessage);
 
     const openaiPayload = {
-      model: "gpt-4o",
-      temperature: 0.7,
+      model: "o3-mini",
       messages: this.conversationHistory,
     };
 
