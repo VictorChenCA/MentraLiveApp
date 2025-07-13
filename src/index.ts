@@ -115,7 +115,6 @@ class PokerCoachMentraApp extends AppServer {
     }
 
     /* ───── Step 2 – OpenAI GPT API ───── */
-    /* ───── Step 2 – OpenAI GPT API ───── */
     const openaiPayload = {
       model: "gpt-3.5-turbo",
       temperature: 0.7,
@@ -126,7 +125,8 @@ class PokerCoachMentraApp extends AppServer {
         },
         {
           role: "user",
-          content: `My hand is ${classes.join(" and ")}. Return to me a JSON file in the format: {win_probability: 0-100, tip: "a 1-sentence advice to be read out loud to the player"}`
+          content: `My hand is ${classes.join(" and ")}. Return to me a JSON file in the format: {win_probability: 0-100,tip: 
+                    "a 1-sentence advice to be read out loud to the player. Don't use any emojis or special characters."}`
         }
       ]
     };
