@@ -1,60 +1,50 @@
-# MentraOS-Camera-Example-App
+# 🂡 AceSense — Real-Time AR Poker Coach for Mentra Live Glasses
 
-This is a simple example app which demonstrates how to use the MentraOS Camera API to take photos and display them in a webview.
+📍 **Mentra Live Hackathon @ YC SF** — July 12–13, 2025  
+🥇 **Best Use of Roboflow**  
+🥇 **Best Use of ElevenLabs**
 
-You could also send the photo to an AI api, store it in a database or cloud storage, send it to Roboflow, or do other processing.
+AceSense is a real-time AR poker coach for Mentra Live smart glasses, built with the MentraOS SDK. It detects your cards, calculates win probability using GPT‑3, and speaks strategic tips aloud via ElevenLabs—keeping your hands free and your eyes on the game.
 
-### Install MentraOS on your phone
+## ⚙️ Tools & Technologies
 
-MentraOS install links: [mentra.glass/install](https://mentra.glass/install)
+### Platform & Runtime
+- **MentraOS SDK** — Provides camera control and AR UI on Mentra Live smart glasses  
+- **Bun** — Lightweight backend runtime for low-latency processing  
+- **ngrok** — Tunnels local backend to public URL for device integration
 
-### (Easiest way to get started) Set up ngrok
-
-1. `brew install ngrok`
-
-2. Make an ngrok account
-
-3. [Use ngrok to make a static address/URL](https://dashboard.ngrok.com/)
-
-### Register your App with MentraOS
-
-1. Navigate to [console.mentra.glass](https://console.mentra.glass/)
-
-2. Click "Sign In", and log in with the same account you're using for MentraOS
-
-3. Click "Create App"
-
-4. Set a unique package name like `com.yourName.yourAppName`
-
-5. For "Public URL", enter your Ngrok's static URL
-
-6. In the edit app screen, add the microphone permission
-
-### Get your App running!
-
-1. [Install bun](https://bun.sh/docs/installation)
-
-2. Clone this repo locally: `git clone https://github.com/Mentra-Community/MentraOS-Camera-Example-App`
-
-3. cd into your repo, then type `bun install`
-
-5. Set up your environment variables:
-   * Create a `.env` file in the root directory by copying the example: `cp .env.example .env`
-   * Edit the `.env` file with your app details:
-     ```
-     PORT=3000
-     PACKAGE_NAME=com.yourName.yourAppName
-     MENTRAOS_API_KEY=your_api_key_from_console
-     ```
-   * Make sure the `PACKAGE_NAME` matches what you registered in the MentraOS Console
-   * Get your `API_KEY` from the MentraOS Developer Console
-
-6. Run your app with `bun run dev`
-
-7. To expose your app to the internet (and thus MentraOS) with ngrok, run: `ngrok http --url=<YOUR_NGROK_URL_HERE> 3000`
-    * `3000` is the port. It must match what is in the app config. For example, if you entered `port: 8080`, use `8080` for ngrok instead.
+### ML & AI
+- **Roboflow (YOLOv11 → RF-DETR)** — Initialized with a pretrained YOLOv11 model on the [Playing Cards Dataset](https://universe.roboflow.com/augmented-startups/playing-cards-ow27d)  
+  - Applied **±45° shear augmentations** to account for **viewing angle distortions**, doubling dataset to 20k images.
+  - Fine-tuned using **RF-DETR** (a DETR-based transformer model) for improved bounding box accuracy under angular variation
+- **OpenAI GPT-3.5 (o3-mini)** — Performs reasoning to estimate win probability and generate concise strategy tips  
+- **ElevenLabs** — Converts tips into natural-sounding audio, spoken aloud through the headset
+- 
+### Design & Planning
+- [Figma Board](https://www.figma.com/board/V6G4oM1Z7IEj5uv8i8kcV6/Mentra-Live-Brainstorm?node-id=0-1&t=92njWwzU1czMSzhB-1) — Ideation and UI planning
 
 
-### Next Steps
+## 🚀 How It Works
 
-Check out the full documentation at [docs.mentra.glass](https://docs.mentra.glass/camera)
+1. MentraOS captures an image of the player's hand  
+2. Image is sent to Roboflow for card detection (via YOLOv11 or RF-DETR)  
+3. Detected card values are passed to OpenAI's o3-mini for odds estimation and tip generation  
+4. ElevenLabs synthesizes the tip into David Attenborough's voice  
+5. Output is delivered directly through the Mentra Live on-ear speakers in real time.
+
+
+## 🛠 Local Dev
+
+```bash
+# Start backend server
+bun run dev
+
+# Expose to MentraOS device
+ngrok http --url=grouse-next-especially.ngrok-free.app 3000
+```
+
+You'll need API keys for:
+- Roboflow  
+- OpenAI  
+- ElevenLabs
+- MentraOS
