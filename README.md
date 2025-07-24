@@ -1,4 +1,4 @@
-# 🂡 AceSense: Real-Time AR Poker Coach for Mentra Live Glasses
+# 🂡 AceSense: AR Poker Coach for Mentra Live Glasses
 
 📍 **Mentra Live Hackathon @ YC SF** — July 12–13, 2025  
 🥇 **Best Use of Roboflow**  
